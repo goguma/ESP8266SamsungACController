@@ -71,6 +71,7 @@ IRSamsungAc ac(kIrLed);    // Set the GPIO used for sending messages.
 #define DEFAULT_AC_TEMPERATURE 28
 #define DEFAULT_AC_TIMER_DURATION 60
 char auth[] = MY_SECRET_AUTH_KEY;
+
 BlynkTimer timer;
 int acTemperature = DEFAULT_AC_TEMPERATURE;                   //celsius
 int acTimerDuration = DEFAULT_AC_TIMER_DURATION;                 //min
