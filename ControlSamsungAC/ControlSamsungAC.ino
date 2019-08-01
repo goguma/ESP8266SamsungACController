@@ -143,8 +143,16 @@ void timerCallback()
     sendACPowerState(1);
     controlAC(true, AC_DEFAULT_TEMP_BY_LIM);
   }
-  else
+  else if (ac.getPower() == true )
+  {
     calledcnt++;
+  }
+  else
+  {
+    Serial.println("temperature is good! I don't need A/C");
+    sendACPowerState(0);
+  }
+
 }
 
 /*
