@@ -64,6 +64,13 @@ IRSamsungAc ac(kIrLed);    // Set the GPIO used for sending messages.
 #define AC_DEFAULT_TEMP_BY_LIM 27
 
 /*
+ * thingspeak stuff
+ */
+WiFiClient client;
+String thingSpeakApiKey = MY_SECRET_THING_SPEAK_API_KEY;
+const char* server = "api.thingspeak.com";
+
+/*
  * Blynk stuff
  */
 // You should get Auth Token in the Blynk App.
@@ -80,16 +87,16 @@ unsigned long timerInterval = 300000L; //300sec, 5min
 
 BLYNK_WRITE(V0)
 {
-  acTemperature = param.asInt();
-  Serial.print("V0 (temperatue )Slider value is: ");
-  Serial.println(acTemperature);
+	acTemperature = param.asInt();
+	Serial.print("V0 (temperatue )Slider value is: ");
+	Serial.println(acTemperature);
 }
 
 BLYNK_WRITE(V1)
 {
-  acTimerDuration = param.asInt();
-  Serial.print("V1 (timerDuration )Slider value is: ");
-  Serial.println(acTimerDuration);
+	acTimerDuration = param.asInt();
+	Serial.print("V1 (timerDuration )Slider value is: ");
+	Serial.println(acTimerDuration);
 }
 
 /*
@@ -97,61 +104,67 @@ BLYNK_WRITE(V1)
  */
 void setup()
 {
-  Serial.begin(115200);
-  delay(200);
+	Serial.begin(115200);
+	delay(200);
 
-  acSetup();
+	acSetup();
 
-  Blynk.begin(auth, ssid, pass);
-  // You can also specify server:
-  //Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 80);
-  //Blynk.begin(auth, ssid, pass, IPAddress(192,168,1,100), 8080);
+	thingSpeakSetup();
 
-  dht.begin();
+	dht.begin();
 
-  // Setup a function to be called every timerInterval
-  timer.setInterval(timerInterval, timerCallback);
+	Blynk.begin(auth, ssid, pass);
+	// You can also specify server:
+	//Blynk.begin(auth, ssid, pass, "blynk-cloud.com", 80);
+	//Blynk.begin(auth, ssid, pass, IPAddress(192,168,1,100), 8080);
+
+	// Setup a function to be called every timerInterval
+	timer.setInterval(timerInterval, timerCallback);
 }
 
 void loop()
 {
-  Blynk.run();
-  timer.run();
+	Blynk.run();
+	timer.run();
 }
 
 void timerCallback()
 {
-  static int calledcnt = 0;
-  int shouldcalled = (unsigned int)(acTimerDuration * 60) / (timerInterval / 1000);
-  Serial.print("calledcnt : ");
-  Serial.print(calledcnt);
-  Serial.print(" shouldcalled : ");
-  Serial.println(shouldcalled);
+	static int calledcnt = 0;
+	int shouldcalled = (unsigned int)(acTimerDuration * 60) / (timerInterval / 1000);
+	Serial.print("calledcnt : ");
+	Serial.print(calledcnt);
+	Serial.print(" shouldcalled : ");
+	Serial.println(shouldcalled);
 
-  getTempHumidity();
-  sendSensor();
+	getTempHumidity();
+	sendSensor();
 
-  /* TODO : Logic to control AC */
-  if (ac.getPower() == true && shouldcalled <= calledcnt)
-  {
-    sendACPowerState(0);
-    calledcnt = 0;
-    controlAC(false, 0);
-  }
-  else if (ac.getPower() == false && t >= (float)acTemperature)
-  {
-    sendACPowerState(1);
-    controlAC(true, AC_DEFAULT_TEMP_BY_LIM);
-  }
-  else if (ac.getPower() == true )
-  {
-    calledcnt++;
-  }
-  else
-  {
-    Serial.println("temperature is good! I don't need A/C");
-    sendACPowerState(0);
-  }
+	/* TODO : Logic to control AC */
+	if (ac.getPower() == true && shouldcalled <= calledcnt)
+	{
+		sendACPowerState(0);
+		sendDataToThingSpeak(t, h, 0);
+		calledcnt = 0;
+		controlAC(false, 0);
+	}
+	else if (ac.getPower() == false && t >= (float)acTemperature)
+	{
+		sendACPowerState(1);
+		sendDataToThingSpeak(t, h, 1);
+		controlAC(true, AC_DEFAULT_TEMP_BY_LIM);
+	}
+	else if (ac.getPower() == true )
+	{
+		sendDataToThingSpeak(t, h, 1);
+		calledcnt++;
+	}
+	else
+	{
+		Serial.println("temperature is good! I don't need A/C");
+		sendACPowerState(0);
+		sendDataToThingSpeak(t, h, 0);
+	}
 
 }
 
@@ -160,92 +173,92 @@ void timerCallback()
  */
 void acSetup()
 {
-  ac.begin();
+	ac.begin();
 
-  // Set up what we want to send. See ir_Samsung.cpp for all the options.
-  Serial.println("Default state of the remote.");
-  printState();
-  Serial.println("Setting initial state for A/C.");
-  ac.off();
-  ac.setFan(kSamsungAcFanLow);
-  ac.setMode(kSamsungAcCool);
-  ac.setTemp(27);
-  ac.setSwing(false);
-  printState();
+	// Set up what we want to send. See ir_Samsung.cpp for all the options.
+	Serial.println("Default state of the remote.");
+	printState();
+	Serial.println("Setting initial state for A/C.");
+	ac.off();
+	ac.setFan(kSamsungAcFanLow);
+	ac.setMode(kSamsungAcCool);
+	ac.setTemp(27);
+	ac.setSwing(false);
+	printState();
 }
 
 void printState()
 {
-  // Display the settings.
-  Serial.println("Samsung A/C remote is in the following state:");
-  Serial.printf("  %s\n", ac.toString().c_str());
+	// Display the settings.
+	Serial.println("Samsung A/C remote is in the following state:");
+	Serial.printf("  %s\n", ac.toString().c_str());
 }
 
 void controlAC(bool power, int temperature)
 {
-  if (power == false)
-  {
-    // Turn the A/C unit off.
-    Serial.println("Turn off the A/C ...");
-    ac.off();
-    ac.send();
-    printState();
-    delay(15000); // wait 15 seconds
-  }
-  else
-  {
-    // Turn the A/C unit on
-    Serial.println("Turn on the A/C ...");
-    ac.on();
-    ac.send();
-    printState();
-    delay(15000); // wait 15 seconds
-    ac.setFan(kSamsungAcFanLow);
-    ac.setMode(kSamsungAcCool);
-    ac.setTemp(temperature);
-    ac.setSwing(false);
-    ac.send();
-    printState();
-    delay(15000); // wait 15 seconds
-  }
-  
+	if (power == false)
+	{
+		// Turn the A/C unit off.
+		Serial.println("Turn off the A/C ...");
+		ac.off();
+		ac.send();
+		printState();
+		delay(15000); // wait 15 seconds
+	}
+	else
+	{
+		// Turn the A/C unit on
+		Serial.println("Turn on the A/C ...");
+		ac.on();
+		ac.send();
+		printState();
+		delay(15000); // wait 15 seconds
+		ac.setFan(kSamsungAcFanLow);
+		ac.setMode(kSamsungAcCool);
+		ac.setTemp(temperature);
+		ac.setSwing(false);
+		ac.send();
+		printState();
+		delay(15000); // wait 15 seconds
+	}
+	
 #if 0
-  // Turn the A/C unit on
-  Serial.println("Turn on the A/C ...");
-  ac.on();
-  ac.send();
-  printState();
-  delay(15000); // wait 15 seconds
-  // and set to cooling mode.
-  Serial.println("Set the A/C mode to cooling ...");
-  ac.setMode(kSamsungAcCool);
-  ac.send();
-  printState();
-  delay(15000); // wait 15 seconds
+	// Turn the A/C unit on
+	Serial.println("Turn on the A/C ...");
+	ac.on();
+	ac.send();
+	printState();
+	delay(15000); // wait 15 seconds
+	// and set to cooling mode.
+	Serial.println("Set the A/C mode to cooling ...");
+	ac.setMode(kSamsungAcCool);
+	ac.send();
+	printState();
+	delay(15000); // wait 15 seconds
 
-  // Increase the fan speed.
-  Serial.println("Set the fan to high and the swing on ...");
-  ac.setFan(kSamsungAcFanHigh);
-  ac.setSwing(true);
-  ac.send();
-  printState();
-  delay(15000);
+	// Increase the fan speed.
+	Serial.println("Set the fan to high and the swing on ...");
+	ac.setFan(kSamsungAcFanHigh);
+	ac.setSwing(true);
+	ac.send();
+	printState();
+	delay(15000);
 
-  // Change to Fan mode, lower the speed, and stop the swing.
-  Serial.println("Set the A/C to fan only with a low speed, & no swing ...");
-  ac.setSwing(false);
-  ac.setMode(kSamsungAcFan);
-  ac.setFan(kSamsungAcFanLow);
-  ac.send();
-  printState();
-  delay(15000);
+	// Change to Fan mode, lower the speed, and stop the swing.
+	Serial.println("Set the A/C to fan only with a low speed, & no swing ...");
+	ac.setSwing(false);
+	ac.setMode(kSamsungAcFan);
+	ac.setFan(kSamsungAcFanLow);
+	ac.send();
+	printState();
+	delay(15000);
 
-  // Turn the A/C unit off.
-  Serial.println("Turn off the A/C ...");
-  ac.off();
-  ac.send();
-  printState();
-  delay(15000); // wait 15 seconds
+	// Turn the A/C unit off.
+	Serial.println("Turn off the A/C ...");
+	ac.off();
+	ac.send();
+	printState();
+	delay(15000); // wait 15 seconds
 #endif
 }
 /*************************************************************************/
@@ -255,33 +268,33 @@ void controlAC(bool power, int temperature)
  */
 void getTempHumidity()
 {
-  // Wait at least 2 seconds seconds between measurements.
-  // if the difference between the current time and last time you read
-  // the sensor is bigger than the interval you set, read the sensor
-  // Works better than delay for things happening elsewhere also
-  unsigned long currentMillis = millis();
+	// Wait at least 2 seconds seconds between measurements.
+	// if the difference between the current time and last time you read
+	// the sensor is bigger than the interval you set, read the sensor
+	// Works better than delay for things happening elsewhere also
+	unsigned long currentMillis = millis();
 
-  if (currentMillis - previousMillis >= interval)
-  {
-    // save the last time you read the sensor
-    previousMillis = currentMillis;
+	if (currentMillis - previousMillis >= interval)
+	{
+		// save the last time you read the sensor
+		previousMillis = currentMillis;
 
-    // Reading temperature for humidity takes about 250 milliseconds!
-    // Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
-    h = dht.readHumidity();    // Read humidity (percent)
-    t = dht.readTemperature(); // Read temperature as
-    // Check if any reads failed and exit early (to try again).
-    if (isnan(h) || isnan(t))
-    {
-      Serial.println("Failed to read from DHT sensor!");
-      return;
-    }
-    Serial.print("humidity : ");
-    Serial.print(h, 1);
-    Serial.print("\t\t");
-    Serial.print("Temperature : ");
-    Serial.println(t, 1);
-  }
+		// Reading temperature for humidity takes about 250 milliseconds!
+		// Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
+		h = dht.readHumidity();    // Read humidity (percent)
+		t = dht.readTemperature(); // Read temperature as
+		// Check if any reads failed and exit early (to try again).
+		if (isnan(h) || isnan(t))
+		{
+			Serial.println("Failed to read from DHT sensor!");
+			return;
+		}
+		Serial.print("humidity : ");
+		Serial.print(h, 1);
+		Serial.print("\t\t");
+		Serial.print("Temperature : ");
+		Serial.println(t, 1);
+	}
 }
 /*************************************************************************/
 
@@ -291,13 +304,73 @@ void getTempHumidity()
  */
 void sendSensor()
 {
-  // You can send any value at any time.
-  // Please don't send more that 10 values per second.
-  Blynk.virtualWrite(V5, h);
-  Blynk.virtualWrite(V6, t);
+	// You can send any value at any time.
+	// Please don't send more that 10 values per second.
+	Blynk.virtualWrite(V5, h);
+	Blynk.virtualWrite(V6, t);
 }
 
 void sendACPowerState(int power)
 {
-  Blynk.virtualWrite(V7, power);
+	Blynk.virtualWrite(V7, power);
+}
+/*************************************************************************/
+
+/*
+ * thingspeak stuff
+ */
+
+void thingSpeakSetup()
+{
+	WiFi.begin(ssid, pass);
+
+	Serial.println("WiFi connecting ");
+	while (WiFi.status() != WL_CONNECTED) {
+		delay(1000);
+		Serial.print(".");
+	}
+	Serial.println("");
+	Serial.println("WiFi connected");
+}
+
+void sendDataToThingSpeak(float temperature, float humidity, int acPowerState)
+{
+	if (client.connect(server, 80))
+	{
+		//"184.106.153.149" or api.thingspeak.com
+		String postStr = thingSpeakApiKey;
+			postStr +="&field1=";
+			postStr += String(temperature);
+			postStr +="&field2=";
+			postStr += String(humidity);
+			postStr +="&field3=";
+			postStr += String(acPowerState);
+
+		client.print("POST /update HTTP/1.1\n");
+		client.print("Host: api.thingspeak.com\n");
+		client.print("Connection: close\n");
+		client.print("X-THINGSPEAKAPIKEY: "+thingSpeakApiKey+"\n");
+		client.print("Content-Type: application/x-www-form-urlencoded\n");
+		client.print("Content-Length: ");
+		client.print(postStr.length());
+		client.print("\n\n");
+		client.print(postStr);
+
+		Serial.print("Temperature: ");
+		Serial.print(temperature);
+		Serial.println(" Celsius");
+
+		Serial.print("Humidity: ");
+		Serial.print(humidity);
+		Serial.println(" %");
+
+		Serial.print("acPowerState: ");
+		Serial.println(acPowerState);
+	}
+	else
+	{
+		Serial.println("Failed to connect to thingspeak");
+	}
+
+	client.stop();
 }
