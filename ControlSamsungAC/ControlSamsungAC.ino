@@ -76,14 +76,17 @@ const char* server = "api.thingspeak.com";
 // You should get Auth Token in the Blynk App.
 // Go to the Project Settings (nut icon).
 #define DEFAULT_AC_TEMPERATURE 28
-#define DEFAULT_AC_TIMER_DURATION 60
+#define DEFAULT_AC_TIMER_DURATION 45
 char auth[] = MY_SECRET_AUTH_KEY;
 
 BlynkTimer timer;
 int acTemperature = DEFAULT_AC_TEMPERATURE;                   //celsius
 int acTimerDuration = DEFAULT_AC_TIMER_DURATION;                 //min
+int acManualPower = 1;
+int acAutomationEnabled = 1;
 //unsigned long timerInterval = 60000L; //60sec
 unsigned long timerInterval = 300000L; //300sec, 5min
+int calledcnt = 0;
 
 BLYNK_WRITE(V0)
 {
@@ -97,6 +100,32 @@ BLYNK_WRITE(V1)
 	acTimerDuration = param.asInt();
 	Serial.print("V1 (timerDuration )Slider value is: ");
 	Serial.println(acTimerDuration);
+}
+
+BLYNK_WRITE(V2)
+{
+	acManualPower = param.asInt();
+	Serial.print("V2 (Manual Power )value is: ");
+	Serial.println(acManualPower);
+
+	if (acManualPower == 1)
+	{
+		sendACPowerState(1);
+		controlAC(true, AC_DEFAULT_TEMP_BY_LIM);
+	}
+	else
+	{
+		sendACPowerState(0);
+		calledcnt = 0;
+		controlAC(false, 0);
+	}
+}
+
+BLYNK_WRITE(V3)
+{
+	acAutomationEnabled = param.asInt();
+	Serial.print("V3 (acAutomationEnabled ) value is: ");
+	Serial.println(acAutomationEnabled);
 }
 
 /*
@@ -120,6 +149,12 @@ void setup()
 
 	// Setup a function to be called every timerInterval
 	timer.setInterval(timerInterval, timerCallback);
+
+	getTempHumidity();
+	sendSensor();
+	Blynk.virtualWrite(V7, -1);
+	Blynk.virtualWrite(V2, 0);
+	sendDataToThingSpeak(t, h, -1);
 }
 
 void loop()
@@ -130,7 +165,9 @@ void loop()
 
 void timerCallback()
 {
-	static int calledcnt = 0;
+	if (acAutomationEnabled == 0)
+		return;
+
 	int shouldcalled = (unsigned int)(acTimerDuration * 60) / (timerInterval / 1000);
 	Serial.print("calledcnt : ");
 	Serial.print(calledcnt);
@@ -313,6 +350,7 @@ void sendSensor()
 void sendACPowerState(int power)
 {
 	Blynk.virtualWrite(V7, power);
+	Blynk.virtualWrite(V2, power);
 }
 /*************************************************************************/
 
