@@ -62,6 +62,9 @@ const long interval = 2000;       // interval at which to read sensor
 const uint16_t kIrLed = 4; // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 IRSamsungAc ac(kIrLed);    // Set the GPIO used for sending messages.
 #define AC_DEFAULT_TEMP_BY_LIM 27
+#define AC_FAN_ONLY_TEMP_BY_LIM 26
+#define AC_RE_COOL_TEMP_BY_LIM 27.5
+#define AC_WORKING_DELAY 5000
 
 /*
  * thingspeak stuff
@@ -76,7 +79,7 @@ const char* server = "api.thingspeak.com";
 // You should get Auth Token in the Blynk App.
 // Go to the Project Settings (nut icon).
 #define DEFAULT_AC_TEMPERATURE 28
-#define DEFAULT_AC_TIMER_DURATION 45
+#define DEFAULT_AC_TIMER_DURATION 60
 char auth[] = MY_SECRET_AUTH_KEY;
 
 BlynkTimer timer;
@@ -111,13 +114,14 @@ BLYNK_WRITE(V2)
 	if (acManualPower == 1)
 	{
 		sendACPowerState(1);
-		controlAC(true, AC_DEFAULT_TEMP_BY_LIM);
+		controlAC(true, false, AC_DEFAULT_TEMP_BY_LIM);
+		//controlAC(true, true, AC_DEFAULT_TEMP_BY_LIM);
 	}
 	else
 	{
 		sendACPowerState(0);
 		calledcnt = 0;
-		controlAC(false, 0);
+		controlAC(false, false, 0);
 	}
 }
 
@@ -150,11 +154,15 @@ void setup()
 	// Setup a function to be called every timerInterval
 	timer.setInterval(timerInterval, timerCallback);
 
+	// Initialize Blynk GUI
 	getTempHumidity();
-	sendSensor();
-	Blynk.virtualWrite(V7, -1);
-	Blynk.virtualWrite(V2, 0);
-	sendDataToThingSpeak(t, h, -1);
+	sendSensor(); // V5, V6
+	Blynk.virtualWrite(V7, -1); //AC Power Status
+	Blynk.virtualWrite(V2, 0); //Power On/Off Button
+	Blynk.virtualWrite(V0, acTemperature); // AC Action Temp
+	Blynk.virtualWrite(V1, acTimerDuration); //AC Timer Duration
+	Blynk.virtualWrite(V3, 1); // AC acAutomationEnabled is enabled
+	sendDataToThingSpeak(t, h, -1, -1);
 }
 
 void loop()
@@ -181,26 +189,40 @@ void timerCallback()
 	if (ac.getPower() == true && shouldcalled <= calledcnt)
 	{
 		sendACPowerState(0);
-		sendDataToThingSpeak(t, h, 0);
+		sendDataToThingSpeak(t, h, 0, 0);
 		calledcnt = 0;
-		controlAC(false, 0);
+		controlAC(false, false, 0);
 	}
 	else if (ac.getPower() == false && t >= (float)acTemperature)
 	{
 		sendACPowerState(1);
-		sendDataToThingSpeak(t, h, 1);
-		controlAC(true, AC_DEFAULT_TEMP_BY_LIM);
+		sendDataToThingSpeak(t, h, 1, 2);
+		controlAC(true, false, AC_DEFAULT_TEMP_BY_LIM);
+	}
+	else if (ac.getPower() == true && t <= (float)AC_FAN_ONLY_TEMP_BY_LIM)
+	{
+		sendACPowerState(1);
+		sendDataToThingSpeak(t, h, 1, 1);
+		controlAC(true, true, AC_DEFAULT_TEMP_BY_LIM);
+		calledcnt++;
+	}
+	else if (ac.getPower() == true && t >= (float)AC_RE_COOL_TEMP_BY_LIM)
+	{
+		sendACPowerState(1);
+		sendDataToThingSpeak(t, h, 1, 2);
+		controlAC(true, false, AC_DEFAULT_TEMP_BY_LIM);
+		calledcnt++;
 	}
 	else if (ac.getPower() == true )
 	{
-		sendDataToThingSpeak(t, h, 1);
+		sendDataToThingSpeak(t, h, 1, 2);
 		calledcnt++;
 	}
 	else
 	{
 		Serial.println("temperature is good! I don't need A/C");
 		sendACPowerState(0);
-		sendDataToThingSpeak(t, h, 0);
+		sendDataToThingSpeak(t, h, 0, 0);
 	}
 
 }
@@ -231,7 +253,7 @@ void printState()
 	Serial.printf("  %s\n", ac.toString().c_str());
 }
 
-void controlAC(bool power, int temperature)
+void controlAC(bool power, bool fan_only, int temperature)
 {
 	if (power == false)
 	{
@@ -240,7 +262,7 @@ void controlAC(bool power, int temperature)
 		ac.off();
 		ac.send();
 		printState();
-		delay(15000); // wait 15 seconds
+		delay(AC_WORKING_DELAY); // default is 5 sec
 	}
 	else
 	{
@@ -249,14 +271,17 @@ void controlAC(bool power, int temperature)
 		ac.on();
 		ac.send();
 		printState();
-		delay(15000); // wait 15 seconds
+		delay(AC_WORKING_DELAY); // default is 5 sec
 		ac.setFan(kSamsungAcFanLow);
-		ac.setMode(kSamsungAcCool);
+		if (fan_only == true)
+			ac.setMode(kSamsungAcFan);
+		else
+			ac.setMode(kSamsungAcCool);
 		ac.setTemp(temperature);
 		ac.setSwing(false);
 		ac.send();
 		printState();
-		delay(15000); // wait 15 seconds
+		delay(AC_WORKING_DELAY); //default is 5 sec
 	}
 	
 #if 0
@@ -371,7 +396,7 @@ void thingSpeakSetup()
 	Serial.println("WiFi connected");
 }
 
-void sendDataToThingSpeak(float temperature, float humidity, int acPowerState)
+void sendDataToThingSpeak(float temperature, float humidity, int acPowerState, int acMode)
 {
 	if (client.connect(server, 80))
 	{
@@ -383,6 +408,8 @@ void sendDataToThingSpeak(float temperature, float humidity, int acPowerState)
 			postStr += String(humidity);
 			postStr +="&field3=";
 			postStr += String(acPowerState);
+			postStr +="&field4=";
+			postStr += String(acMode);
 
 		client.print("POST /update HTTP/1.1\n");
 		client.print("Host: api.thingspeak.com\n");
@@ -403,7 +430,11 @@ void sendDataToThingSpeak(float temperature, float humidity, int acPowerState)
 		Serial.println(" %");
 
 		Serial.print("acPowerState: ");
-		Serial.println(acPowerState);
+		Serial.print(acPowerState);
+		Serial.println(" %");
+
+		Serial.print("acMode: ");
+		Serial.println(acMode);
 	}
 	else
 	{
