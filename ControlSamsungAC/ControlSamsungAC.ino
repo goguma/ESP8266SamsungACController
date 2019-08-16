@@ -62,7 +62,7 @@ const long interval = 2000;       // interval at which to read sensor
 const uint16_t kIrLed = 4; // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 IRSamsungAc ac(kIrLed);    // Set the GPIO used for sending messages.
 #define AC_DEFAULT_TEMP_BY_LIM 27
-#define AC_FAN_ONLY_TEMP_BY_LIM 26
+#define AC_FAN_ONLY_TEMP_BY_LIM 26.5
 #define AC_RE_COOL_TEMP_BY_LIM 27.5
 #define AC_WORKING_DELAY 5000
 
@@ -88,7 +88,7 @@ int acTimerDuration = DEFAULT_AC_TIMER_DURATION;                 //min
 int acManualPower = 1;
 int acAutomationEnabled = 1;
 //unsigned long timerInterval = 60000L; //60sec
-unsigned long timerInterval = 300000L; //300sec, 5min
+unsigned long timerInterval = 120000L; //120sec, 2min
 int calledcnt = 0;
 
 BLYNK_WRITE(V0)
